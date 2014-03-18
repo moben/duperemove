@@ -31,10 +31,9 @@ int insert_hashed_block(struct hash_tree *tree, unsigned char *digest,
 			struct filerec *file, uint64_t loff);
 void remove_hashed_blocks(struct hash_tree *tree, struct filerec *file);
 
-typedef int (for_each_dupe_t)(struct file_block *, void *);
-void for_each_dupe(struct file_block *block, struct filerec *file,
+typedef int (for_each_dupe_t)(struct file_block *, struct file_block *, void *);
+void for_each_dupe(struct file_block *orig, struct filerec *file,
 		   for_each_dupe_t func, void *priv);
-
 int block_seen(struct file_block *block);
 void mark_block_seen(struct file_block *block);
 void clear_all_seen_blocks(void);

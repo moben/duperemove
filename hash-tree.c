@@ -143,21 +143,21 @@ void remove_hashed_blocks(struct hash_tree *tree, struct filerec *file)
 		remove_hashed_block(tree, block);
 }
 
-void for_each_dupe(struct file_block *block, struct filerec *file,
+void for_each_dupe(struct file_block *orig, struct filerec *file,
 		   for_each_dupe_t func, void *priv)
 {
-	struct dupe_blocks_list *parent = block->b_parent;
+	struct dupe_blocks_list *parent = orig->b_parent;
 	struct file_block *cur;
 
 	list_for_each_entry(cur, &parent->dl_list, b_list) {
 		/* Ignore self and any blocks from another file */
-		if (cur == block)
+		if (cur == orig)
 			continue;
 
 		if (cur->b_file != file)
 			continue;
 
-		if (func(cur, priv))
+		if (func(cur, orig, priv))
 			break;
 	}
 }

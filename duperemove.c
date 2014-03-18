@@ -51,6 +51,9 @@ static int verbose = 0, debug = 0;
 static unsigned int blocksize = DEFAULT_BLOCKSIZE;
 static char *buf = NULL;
 
+#define MAX_WINDOW_SIZE	16384
+#define DEFAULT_WINDOW_SIZE	16
+static int window_size = DEFAULT_WINDOW_SIZE;
 static unsigned char digest[DIGEST_LEN_MAX] = { 0, };
 static char path[PATH_MAX] = { 0, };
 char *pathp = path;
@@ -382,8 +385,13 @@ static void usage(const char *prog)
 	printf("\n\t<switches>\n");
 	printf("\t-r\t\tEnable recursive dir traversal.\n");
 	printf("\t-D\t\tDe-dupe the results - only works on btrfs.\n");
-	printf("\t-A\t\tOpens files readonly when deduping. Primarily for use by privileged users on readonly snapshots\n");
-	printf("\t-b bsize\tUse bsize blocks - specify in kilobytes. Default is %d.\n", DEFAULT_BLOCKSIZE / 1024);
+	printf("\t-A\t\tOpens files readonly when deduping. Primarily for use "
+	       "by privileged users on readonly snapshots\n");
+	printf("\t-b bsize\tUse bsize blocks - specify in kilobytes. Default "
+	       "is %d.\n", DEFAULT_BLOCKSIZE / 1024);
+	printf("\t-w window size\tChanges the size of our comparision window. "
+	       "Default is %d blocks.\n",
+	       DEFAULT_WINDOW_SIZE);
 	printf("\t-v\t\tBe verbose.\n");
 	printf("\t-d\t\tPrint debug messages, forces -v if selected.\n");
 	printf("\t-h\t\tPrints this help text.\n");
@@ -494,7 +502,7 @@ static int parse_options(int argc, char **argv)
 	if (argc < 2)
 		return 1;
 
-	while ((c = getopt(argc, argv, "Ab:vdDrh?")) != -1) {
+	while ((c = getopt(argc, argv, "Ab:vdDrw:h?")) != -1) {
 		switch (c) {
 		case 'A':
 			target_rw = 0;
@@ -511,6 +519,13 @@ static int parse_options(int argc, char **argv)
 			break;
 		case 'r':
 			recurse_dirs = 1;
+			break;
+		case 'w':
+			window_size = atoi(optarg);
+			if (window_size == 0 || window_size > MAX_WINDOW_SIZE)
+				return EINVAL;
+			if (window_size < 0)
+				window_size = -1;
 			break;
 		case 'd':
 			debug = 1;
@@ -583,22 +598,23 @@ static void record_match(struct results_tree *res, unsigned char *digest,
 }
 
 struct dupe_walk_ctxt {
-	struct file_block	*orig;
-
 	struct filerec		*orig_file;
 	struct filerec		*walk_file;
 
 	struct results_tree	*res;
+
+	unsigned int		max_cmp;
 };
 
-static int walk_dupe_block(struct file_block *block, void *priv)
+static int walk_dupe_block(struct file_block *block, struct file_block *orig,
+			   void *priv)
 {
 	struct dupe_walk_ctxt *ctxt = priv;
-	struct file_block *orig = ctxt->orig;
 	struct file_block *start[2] = { orig, block };
 	struct file_block *end[2];
 	struct running_checksum *csum;
 	unsigned char match_id[DIGEST_LEN_MAX] = {0, };
+	int cmp = 0, max_cmp = ctxt->max_cmp;
 
 	if (block_seen(block))
 		goto out;
@@ -623,6 +639,9 @@ static int walk_dupe_block(struct file_block *block, void *priv)
 		 */
 		if (orig->b_file_next.next == &ctxt->orig_file->block_list ||
 		    block->b_file_next.next == &ctxt->walk_file->block_list)
+			break;
+
+		if (++cmp > max_cmp)
 			break;
 
 		orig =	list_entry(orig->b_file_next.next, struct file_block,
@@ -656,8 +675,8 @@ static void find_file_dupes(struct filerec *file, struct filerec *walk_file,
 		memset(&ctxt, 0, sizeof(struct dupe_walk_ctxt));
 		ctxt.orig_file = file;
 		ctxt.walk_file = walk_file;
-		ctxt.orig = cur;
 		ctxt.res = res;
+		ctxt.max_cmp = window_size;
 		for_each_dupe(cur, walk_file, walk_dupe_block, &ctxt);
 	}
 	clear_all_seen_blocks();
@@ -683,6 +702,8 @@ int main(int argc, char **argv)
 	}
 
 	vprintf("Using %uK blocks\n", blocksize/1024);
+	if (window_size < 0)
+		vprintf("Window size is infinite. This may not perform well.\n");
 
 	buf = malloc(blocksize);
 	if (!buf)
