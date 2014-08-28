@@ -90,7 +90,7 @@ static struct filerec *filerec_alloc_insert(const char *filename, uint64_t inum)
 		rb_init_node(&file->inum_node);
 		file->inum = inum;
 
-		insert_filerec(file);
+//		insert_filerec(file);
 		list_add_tail(&file->rec_list, &filerec_list);
 	}
 	return file;
